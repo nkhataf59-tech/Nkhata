@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2 Odds Daily - Prediction App</title>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { max-width: 800px; margin: auto; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; }
+        form { display: flex; flex-direction: column; gap: 10px; }
+        input, button { padding: 10px; font-size: 16px; }
+        button { background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+        .predictions { margin-top: 20px; }
+        .prediction { background: #e0f7fa; padding: 10px; margin-bottom: 10px; border-radius: 4px; }
+        .vip-section { display: none; } /* Hidden by default */
+        #vip-active .vip-section { display: block; }
+        .error { color: red; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>2 Odds Daily</h1>
+        
+        <!-- Auth Section -->
+        <div id="auth-section">
+            <h2>Sign Up / Login</h2>
+            <form id="auth-form">
+                <input type="email" id="email" placeholder="Email (use your phone as username@2odds.com)" required>
+                <input type="password" id="password" placeholder="Password" required>
+                <button type="submit" id="signup-btn">Sign Up</button>
+                <button type="button" id="login-btn">Login</button>
+            </form>
+            <p id="auth-message" class="error"></p>
+            <p>Forgot password or email? <a href="#" id="forgot-link">Click here</a> to contact admin for reset code.</p>
+            <div id="reset-section" style="display:none;">
+                <input type="text" id="reset-code" placeholder="Reset Code from Admin">
+                <input type="password" id="new-password" placeholder="New Password">
+                <button id="reset-btn">Reset Password</button>
+            </div>
+        </div>
+        
+        <!-- User Section (hidden initially) -->
+        <div id="user-section" style="display:none;">
+            <h2>Welcome, <span id="user-email"></span></h2>
+            <p>VIP Status: <span id="vip-status">Checking...</span></p>
+            <button id="logout-btn">Logout</button>
+            
+            <div class="predictions">
+                <h3>Free Predictions</h3>
+                <div id="free-predictions"></div>
+                
+                <div class="vip-section">
+                    <h3>VIP Predictions</h3>
+                    <div id="vip-predictions"></div>
+                </div>
+            </div>
+            
+            <div id="payment-info">
+                <h3>To Get VIP Access</h3>
+                <p>Pay via Airtel: +260972232932</p>
+                <p>Send screenshot to WhatsApp: +26760075487</p>
+                <p>Admin will activate your VIP (3, 7, or 30 days).</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Replace with your Firebase config
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const app = firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // Auth Form Handling
+        const authForm = document.getElementById('auth-form');
+        const signupBtn = document.getElementById('signup-btn');
+        const loginBtn = document.getElementById('login-btn');
+        const authMessage = document.getElementById('auth-message');
+        const forgotLink = document.getElementById('forgot-link');
+        const resetSection = document.getElementById('reset-section');
+        const resetCode = document.getElementById('reset-code');
+        const newPassword = document.getElementById('new-password');
+        const resetBtn = document.getElementById('reset-btn');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+
+        signupBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const email = emailInput.value;
+            const password = passwordInput.value;
+            auth.createUserWithEmailAndPassword(email, password)
+                .then(userCredential => {
+                    authMessage.textContent = 'Sign up successful! Now login.';
+                    // Create user doc in Firestore
+                    db.collection('users').doc(userCredential.user.uid).set({
+                        email: email,
+                        vipExpiration: null
+                    });
+                })
+                .catch(error => authMessage.textContent = error.message);
+        });
+
+        loginBtn.addEventListener('click', () => {
+            const email = emailInput.value;
+            const password = passwordInput.value;
+            auth.signInWithEmailAndPassword(email, password)
+                .then(() => authMessage.textContent = 'Login successful!')
+                .catch(error => authMessage.textContent = error.message);
+        });
+
+        forgotLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            resetSection.style.display = 'block';
+            authMessage.textContent = 'Contact admin via WhatsApp +26760075487 for reset code.';
+        });
+
+        resetBtn.addEventListener('click', () => {
+            const code = resetCode.value;
+            const newPass = newPassword.value;
+            const email = emailInput.value; // Assume they enter email again
+
+            // Check reset code in Firestore
+            db.collection('resetCodes').where('email', '==', email).where('code', '==', code).get()
+                .then(snapshot => {
+                    if (!snapshot.empty) {
+                        auth.signInWithEmailAndPassword(email, passwordInput.value) // Temp login if needed, but better use updatePassword
+                            .then(user => user.user.updatePassword(newPass))
+                            .then(() => {
+                                authMessage.textContent = 'Password reset successful!';
+                                // Delete used code
+                                snapshot.docs[0].ref.delete();
+                            });
+                    } else {
+                        authMessage.textContent = 'Invalid reset code.';
+                    }
+                });
+        });
+
+        // User State Listener
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                document.getElementById('auth-section').style.display = 'none';
+                document.getElementById('user-section').style.display = 'block';
+                document.getElementById('user-email').textContent = user.email;
+
+                // Check VIP
+                db.collection('users').doc(user.uid).onSnapshot(doc => {
+                    const data = doc.data();
+                    const now = new Date();
+                    const expiration = data.vipExpiration ? new Date(data.vipExpiration) : null;
+                    if (expiration && expiration > now) {
+                        document.getElementById('vip-status').textContent = 'Active until ' + expiration.toLocaleDateString();
+                        document.querySelector('.vip-section').style.display = 'block';
+                    } else {
+                        document.getElementById('vip-status').textContent = 'Not Active';
+                        document.querySelector('.vip-section').style.display = 'none';
+                    }
+                });
+
+                // Load Predictions
+                loadPredictions();
+            } else {
+                document.getElementById('auth-section').style.display = 'block';
+                document.getElementById('user-section').style.display = 'none';
+            }
+        });
+
+        // Load Predictions from Firestore
+        function loadPredictions() {
+            const freeDiv = document.getElementById('free-predictions');
+            const vipDiv = document.getElementById('vip-predictions');
+            freeDiv.innerHTML = '';
+            vipDiv.innerHTML = '';
+
+            db.collection('predictions').orderBy('timestamp', 'desc').onSnapshot(snapshot => {
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const predDiv = document.createElement('div');
+                    predDiv.classList.add('prediction');
+                    predDiv.textContent = data.text + ' (Posted: ' + new Date(data.timestamp).toLocaleString() + ')';
+                    if (data.type === 'free') {
+                        freeDiv.appendChild(predDiv);
+                    } else if (data.type === 'vip') {
+                        vipDiv.appendChild(predDiv);
+                    }
+                });
+            });
+        }
+
+        // Logout
+        document.getElementById('logout-btn').addEventListener('click', () => auth.signOut());
+    </script>
+</body>
+</html>

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel for 2 Odds Daily</title>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { max-width: 1000px; margin: auto; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; }
+        form { display: flex; flex-direction: column; gap: 10px; }
+        input, textarea, select, button { padding: 10px; font-size: 16px; }
+        button { background-color: #2196F3; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #1976D2; }
+        .users { margin-top: 20px; }
+        .user { background: #fff3e0; padding: 10px; margin-bottom: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Admin Panel</h1>
+        
+        <!-- Admin Login -->
+        <div id="admin-auth">
+            <h2>Admin Login</h2>
+            <form id="admin-form">
+                <input type="email" id="admin-email" placeholder="Admin Email" required>
+                <input type="password" id="admin-password" placeholder="Admin Password" required>
+                <button type="button" id="admin-login-btn">Login</button>
+            </form>
+            <p id="admin-message" class="error"></p>
+        </div>
+        
+        <!-- Admin Dashboard (hidden) -->
+        <div id="admin-dashboard" style="display:none;">
+            <button id="admin-logout-btn">Logout</button>
+            
+            <h2>Post Prediction</h2>
+            <form id="post-form">
+                <textarea id="prediction-text" placeholder="Prediction Text" required></textarea>
+                <select id="prediction-type">
+                    <option value="free">Free</option>
+                    <option value="vip">VIP</option>
+                </select>
+                <button type="submit">Post</button>
+            </form>
+            
+            <h2>Manage Users</h2>
+            <div class="users" id="users-list"></div>
+            
+            <h2>Generate Reset Code</h2>
+            <input type="email" id="reset-email" placeholder="User Email">
+            <button id="generate-reset-btn">Generate Reset Code</button>
+            <p id="reset-code-display"></p>
+        </div>
+    </div>
+
+    <script>
+        // Same Firebase config as above
+        const firebaseConfig = {
+            // ... (same as prediction app)
+        };
+
+        const app = firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        const adminEmail = 'admin@2odds.com'; // Change to your admin email
+        const adminLoginBtn = document.getElementById('admin-login-btn');
+        const adminMessage = document.getElementById('admin-message');
+        const adminDashboard = document.getElementById('admin-dashboard');
+        const usersList = document.getElementById('users-list');
+        const postForm = document.getElementById('post-form');
+        const predictionText = document.getElementById('prediction-text');
+        const predictionType = document.getElementById('prediction-type');
+        const generateResetBtn = document.getElementById('generate-reset-btn');
+        const resetEmail = document.getElementById('reset-email');
+        const resetCodeDisplay = document.getElementById('reset-code-display');
+
+        adminLoginBtn.addEventListener('click', () => {
+            const email = document.getElementById('admin-email').value;
+            const password = document.getElementById('admin-password').value;
+            if (email !== adminEmail) {
+                adminMessage.textContent = 'Not admin email.';
+                return;
+            }
+            auth.signInWithEmailAndPassword(email, password)
+                .then(() => {
+                    document.getElementById('admin-auth').style.display = 'none';
+                    adminDashboard.style.display = 'block';
+                    loadUsers();
+                })
+                .catch(error => adminMessage.textContent = error.message);
+        });
+
+        // Load Users
+        function loadUsers() {
+            usersList.innerHTML = '';
+            db.collection('users').onSnapshot(snapshot => {
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const userDiv = document.createElement('div');
+                    userDiv.classList.add('user');
+                    userDiv.innerHTML = `
+                        <span>${data.email} - VIP: ${data.vipExpiration ? new Date(data.vipExpiration).toLocaleDateString() : 'None'}</span>
+                        <div>
+                            <select class="vip-select" data-uid="${doc.id}">
+                                <option>Activate VIP</option>
+                                <option value="3">3 Days</option>
+                                <option value="7">7 Days</option>
+                                <option value="30">30 Days</option>
+                            </select>
+                            <button class="activate-btn" data-uid="${doc.id}">Activate</button>
+                            <button class="deactivate-btn" data-uid="${doc.id}">Deactivate</button>
+                        </div>
+                    `;
+                    usersList.appendChild(userDiv);
+                });
+
+                // Add event listeners
+                document.querySelectorAll('.activate-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const uid = btn.dataset.uid;
+                        const select = document.querySelector(`.vip-select[data-uid="${uid}"]`);
+                        const days = parseInt(select.value);
+                        if (days) {
+                            const expiration = new Date();
+                            expiration.setDate(expiration.getDate() + days);
+                            db.collection('users').doc(uid).update({ vipExpiration: expiration.toISOString() });
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.deactivate-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const uid = btn.dataset.uid;
+                        db.collection('users').doc(uid).update({ vipExpiration: null });
+                    });
+                });
+            });
+        }
+
+        // Post Prediction
+        postForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            db.collection('predictions').add({
+                text: predictionText.value,
+                type: predictionType.value,
+                timestamp: Date.now()
+            }).then(() => {
+                predictionText.value = '';
+                alert('Prediction posted!');
+            });
+        });
+
+        // Generate Reset Code
+        generateResetBtn.addEventListener('click', () => {
+            const email = resetEmail.value;
+            const code = Math.random().toString(36).substring(2, 10).toUpperCase(); // Random 8-char code
+            db.collection('resetCodes').add({
+                email: email,
+                code: code,
+                created: Date.now()
+            }).then(() => {
+                resetCodeDisplay.textContent = `Reset Code for ${email}: ${code} (Share with user)`;
+            });
+        });
+
+        // Logout
+        document.getElementById('admin-logout-btn').addEventListener('click', () => {
+            auth.signOut().then(() => {
+                document.getElementById('admin-auth').style.display = 'block';
+                adminDashboard.style.display = 'none';
+            });
+        });
+
+        // Ensure only admin can access dashboard
+        auth.onAuthStateChanged(user => {
+            if (user && user.email === adminEmail) {
+                document.getElementById('admin-auth').style.display = 'none';
+                adminDashboard.style.display = 'block';
+                loadUsers();
+            } else {
+                document.getElementById('admin-auth').style.display = 'block';
+                adminDashboard.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
